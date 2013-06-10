@@ -1530,9 +1530,11 @@ static void mmc_detect(struct mmc_host *host)
  */
 
 #define LINUX_34_DEBUG   (1)
-static int mmc_suspend(struct mmc_host *host)
+static int _mmc_suspend(struct mmc_host *host, bool is_suspend)
 {
 	int err = 0;
+	unsigned int notify_type = is_suspend ? EXT_CSD_POWER_OFF_SHORT :
+					EXT_CSD_POWER_OFF_LONG;
 
 	BUG_ON(!host);
 	BUG_ON(!host->card);
@@ -1544,7 +1546,7 @@ static int mmc_suspend(struct mmc_host *host)
 		goto out;
 
 	if (mmc_can_poweroff_notify(host->card))
-		err = mmc_poweroff_notify(host->card, EXT_CSD_POWER_OFF_SHORT);
+		err = mmc_poweroff_notify(host->card, notify_type);
 #if (1 == LINUX_34_DEBUG)
 	else if (mmc_card_can_sleep(host) && mmc_card_keep_power(host)) {
 		err = mmc_card_sleep(host);
@@ -1568,6 +1570,14 @@ static int mmc_suspend(struct mmc_host *host)
 out:
 	mmc_release_host(host);
 	return err;
+}
+
+/*
+ * Suspend callback from host.
+ */
+static int mmc_suspend(struct mmc_host *host)
+{
+	return _mmc_suspend(host, true);
 }
 
 /*
