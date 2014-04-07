@@ -101,6 +101,7 @@ struct zram {
 	u64 disksize;	/* bytes */
 
 	struct zram_stats stats;
+	char compressor[10];
 };
 
 #endif
