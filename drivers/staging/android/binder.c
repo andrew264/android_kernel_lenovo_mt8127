@@ -2459,7 +2459,6 @@ static void binder_transaction(struct binder_proc *proc,
 	struct binder_transaction *in_reply_to = NULL;
 	struct binder_transaction_log_entry *e;
 	uint32_t return_error;
-	const struct cred *cred = __task_cred(proc->tsk);
 
 #ifdef BINDER_MONITOR
 	struct binder_transaction_log_entry log_entry;
@@ -2766,7 +2765,7 @@ out_err:
 		t->from = thread;
 	else
 		t->from = NULL;
-	t->sender_euid = cred->euid;
+	t->sender_euid = task_euid(proc->tsk);
 	t->to_proc = target_proc;
 	t->to_thread = target_thread;
 	t->code = tr->code;
@@ -4195,7 +4194,7 @@ static long binder_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	struct binder_thread *thread;
 	unsigned int size = _IOC_SIZE(cmd);
 	void __user *ubuf = (void __user *)arg;
-	const struct cred *cred = current_cred();
+	kuid_t curr_euid = current_euid();
 
 	/*pr_info("binder_ioctl: %d:%d %x %lx\n", proc->pid, current->pid, cmd, arg);*/
 
@@ -4322,15 +4321,16 @@ static long binder_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		if (ret < 0)
 			goto err;
 		if (uid_valid(binder_context_mgr_uid)) {
-			if (!uid_eq(binder_context_mgr_uid, cred->euid)) {
+			if (!uid_eq(binder_context_mgr_uid, curr_euid)) {
 				pr_err("BINDER_SET_CONTEXT_MGR bad uid %d != %d\n",
-				       from_kuid(&init_user_ns, cred->euid),
+				       from_kuid(&init_user_ns, curr_euid),
 				       from_kuid(&init_user_ns, binder_context_mgr_uid));
 				ret = -EPERM;
 				goto err;
 			}
-		} else
-			binder_context_mgr_uid = cred->euid;
+		} else {
+			binder_context_mgr_uid = curr_euid;
+		}
 		binder_context_mgr_node = binder_new_node(proc, 0, 0);
 		if (binder_context_mgr_node == NULL) {
 			ret = -ENOMEM;
