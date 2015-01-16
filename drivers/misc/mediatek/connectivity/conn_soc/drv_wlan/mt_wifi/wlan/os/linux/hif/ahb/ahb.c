@@ -1370,7 +1370,6 @@ kalDevPortRead (
 {
 //                UCHAR AeeBuffer[100];
                 UINT_32 RegValChip, RegValLP, FwCnt;
-                extern BOOLEAN mtk_wcn_wmt_assert(void);
                 printk("CONNSYS FW CPUINFO:\n");
                 for(FwCnt=0; FwCnt<512; FwCnt++)
                     printk("0x%08x ", MCU_REG_READL(HifInfo, CONN_MCU_CPUPCR)); // CONSYS_REG_READ(CONSYS_CPUPCR_REG)
@@ -1679,7 +1678,6 @@ if (testgdmaclock == 1)
 {
 //                UCHAR AeeBuffer[100];
                 UINT_32 RegValChip, RegValLP, FwCnt;
-                extern BOOLEAN mtk_wcn_wmt_assert(void);
                 printk("CONNSYS FW CPUINFO:\n");
                 for(FwCnt=0; FwCnt<512; FwCnt++)
                     printk("0x%08x ", MCU_REG_READL(HifInfo, CONN_MCU_CPUPCR));

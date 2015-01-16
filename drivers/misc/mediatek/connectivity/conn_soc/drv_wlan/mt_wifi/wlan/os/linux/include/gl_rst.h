@@ -112,6 +112,7 @@ extern int mtk_wcn_wmt_msgcb_unreg(ENUM_WMTDRV_TYPE_T eType);
 extern int wifi_reset_start(void);
 extern int wifi_reset_end(ENUM_RESET_STATUS_T);
 #endif
+int mtk_wcn_wmt_assert(ENUM_WMTDRV_TYPE_T type, UINT32 reason);
 
 /*******************************************************************************
 *                            P U B L I C   D A T A

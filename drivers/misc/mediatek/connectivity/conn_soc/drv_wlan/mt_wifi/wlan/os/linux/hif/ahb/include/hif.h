@@ -103,6 +103,10 @@
 #define CONN_MCU_REG_LENGTH              0x0200
 #define CONN_MCU_CPUPCR                  0x0160
 
+#define CONN_MCU_DRV_BASE                0x18070000
+#define CONN_MCU_REG_LENGTH              0x0200
+#define CONN_MCU_CPUPCR                  0x0160
+
 
 /*******************************************************************************
 *                             D A T A   T Y P E S
@@ -170,8 +174,8 @@ typedef struct _GL_HIF_INFO_T {
     BOOLEAN                 fgDmaEnable; /* TRUE: DMA mode is used (default) */
 
     /* HIF related */
-    UINT_8                   *HifRegBaseAddr; /* HIF register base */
-    UINT_8                   *McuRegBaseAddr; /* CONN MCU register base */
+    UINT8                   *HifRegBaseAddr; /* HIF register base */
+    UINT8                   *McuRegBaseAddr; /* CONN MCU register base */
 
 #if (CONF_HIF_LOOPBACK_AUTO == 1)
     struct timer_list       HifTmrLoopbkFn; /* HIF loopback test trigger timer */
