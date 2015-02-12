@@ -244,9 +244,9 @@ struct mapping_area {
 
 #ifdef CONFIG_ZPOOL
 
-static void *zs_zpool_create(gfp_t gfp, struct zpool_ops *zpool_ops)
+static void *zs_zpool_create(char *name, gfp_t gfp, struct zpool_ops *zpool_ops)
 {
-	return zs_create_pool(gfp);
+	return zs_create_pool(name, gfp);
 }
 
 static void zs_zpool_destroy(void *pool)
@@ -1106,8 +1106,7 @@ EXPORT_SYMBOL_GPL(zs_free);
  *
  * This function returns with preemption and page faults disabled.
  */
-void *zs_map_object(struct zs_pool *pool, unsigned long handle,
-			enum zs_mapmode mm)
+
 {
 	struct page *page;
 	unsigned long obj_idx, off;
