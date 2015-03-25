@@ -39,6 +39,11 @@ static struct timespec curr_xtime; /* wall time after last suspend */
 static struct timespec last_stime; /* total_sleep_time before last suspend */
 static struct timespec curr_stime; /* total_sleep_time after last suspend */
 
+static struct timespec last_xtime; /* wall time before last suspend */
+static struct timespec curr_xtime; /* wall time after last suspend */
+static struct timespec last_stime; /* total_sleep_time before last suspend */
+static struct timespec curr_stime; /* total_sleep_time after last suspend */
+
 static ssize_t last_resume_reason_show(struct kobject *kobj, struct kobj_attribute *attr,
 		char *buf)
 {
