@@ -198,6 +198,16 @@ journal_err_out:
 	return err;
 }
 
+static int uuid_is_zero(__u8 u[16])
+{
+	int	i;
+
+	for (i = 0; i < 16; i++)
+		if (u[i])
+			return 0;
+	return 1;
+}
+
 long ext4_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	struct inode *inode = file_inode(filp);
