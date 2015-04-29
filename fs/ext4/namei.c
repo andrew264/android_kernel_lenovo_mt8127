@@ -414,14 +414,15 @@ static __le32 ext4_dx_csum(struct inode *inode, struct ext4_dir_entry *dirent,
 	struct ext4_sb_info *sbi = EXT4_SB(inode->i_sb);
 	struct ext4_inode_info *ei = EXT4_I(inode);
 	__u32 csum;
+	__le32 save_csum;
 	int size;
-	__u32 dummy_csum = 0;
-	int offset = offsetof(struct dx_tail, dt_checksum);
 
 	size = count_offset + (count * sizeof(struct dx_entry));
+	save_csum = t->dt_checksum;
+	t->dt_checksum = 0;
 	csum = ext4_chksum(sbi, ei->i_csum_seed, (__u8 *)dirent, size);
-	csum = ext4_chksum(sbi, csum, (__u8 *)t, offset);
-	csum = ext4_chksum(sbi, csum, (__u8 *)&dummy_csum, sizeof(dummy_csum));
+	csum = ext4_chksum(sbi, csum, (__u8 *)t, sizeof(struct dx_tail));
+	t->dt_checksum = save_csum;
 
 	return cpu_to_le32(csum);
 }
@@ -586,8 +587,10 @@ struct stats
 	unsigned bcount;
 };
 
-static struct stats dx_show_leaf(struct dx_hash_info *hinfo, struct ext4_dir_entry_2 *de,
-				 int size, int show_names)
+static struct stats dx_show_leaf(struct inode *dir,
+				struct dx_hash_info *hinfo,
+				struct ext4_dir_entry_2 *de,
+				int size, int show_names)
 {
 	unsigned names = 0, space = 0;
 	char *base = (char *) de;
@@ -600,12 +603,73 @@ static struct stats dx_show_leaf(struct dx_hash_info *hinfo, struct ext4_dir_ent
 		{
 			if (show_names)
 			{
+#ifdef CONFIG_EXT4_FS_ENCRYPTION
+				int len;
+				char *name;
+				struct ext4_str fname_crypto_str
+					= {.name = NULL, .len = 0};
+				struct ext4_fname_crypto_ctx *ctx = NULL;
+				int res;
+
+				name  = de->name;
+				len = de->name_len;
+				ctx = ext4_get_fname_crypto_ctx(dir,
+								EXT4_NAME_LEN);
+				if (IS_ERR(ctx)) {
+					printk(KERN_WARNING "Error acquiring"
+					" crypto ctxt--skipping crypto\n");
+					ctx = NULL;
+				}
+				if (ctx == NULL) {
+					/* Directory is not encrypted */
+					ext4fs_dirhash(de->name,
+						de->name_len, &h);
+					printk("%*.s:(U)%x.%u ", len,
+					       name, h.hash,
+					       (unsigned) ((char *) de
+							   - base));
+				} else {
+					/* Directory is encrypted */
+					res = ext4_fname_crypto_alloc_buffer(
+						ctx, de->name_len,
+						&fname_crypto_str);
+					if (res < 0) {
+						printk(KERN_WARNING "Error "
+							"allocating crypto "
+							"buffer--skipping "
+							"crypto\n");
+						ext4_put_fname_crypto_ctx(&ctx);
+						ctx = NULL;
+					}
+					res = ext4_fname_disk_to_usr(ctx, NULL, de,
+							&fname_crypto_str);
+					if (res < 0) {
+						printk(KERN_WARNING "Error "
+							"converting filename "
+							"from disk to usr"
+							"\n");
+						name = "??";
+						len = 2;
+					} else {
+						name = fname_crypto_str.name;
+						len = fname_crypto_str.len;
+					}
+					ext4fs_dirhash(de->name, de->name_len,
+						       &h);
+					printk("%*.s:(E)%x.%u ", len, name,
+					       h.hash, (unsigned) ((char *) de
+								   - base));
+					ext4_put_fname_crypto_ctx(&ctx);
+					ext4_fname_crypto_free_buffer(
+						&fname_crypto_str);
+				}
+#else
 				int len = de->name_len;
 				char *name = de->name;
-				while (len--) printk("%c", *name++);
 				ext4fs_dirhash(de->name, de->name_len, &h);
 				printk(":%x.%u ", h.hash,
 				       (unsigned) ((char *) de - base));
+#endif
 			}
 			space += EXT4_DIR_REC_LEN(de->name_len);
 			names++;
@@ -623,7 +687,6 @@ struct stats dx_show_entries(struct dx_hash_info *hinfo, struct inode *dir,
 	unsigned count = dx_get_count(entries), names = 0, space = 0, i;
 	unsigned bcount = 0;
 	struct buffer_head *bh;
-	int err;
 	printk("%i indexed blocks...\n", count);
 	for (i = 0; i < count; i++, entries++)
 	{
@@ -637,7 +700,8 @@ struct stats dx_show_entries(struct dx_hash_info *hinfo, struct inode *dir,
 			continue;
 		stats = levels?
 		   dx_show_entries(hinfo, dir, ((struct dx_node *) bh->b_data)->entries, levels - 1):
-		   dx_show_leaf(hinfo, (struct ext4_dir_entry_2 *) bh->b_data, blocksize, 0);
+		   dx_show_leaf(dir, hinfo, (struct ext4_dir_entry_2 *)
+			bh->b_data, blocksize, 0);
 		names += stats.names;
 		space += stats.space;
 		bcount += stats.bcount;
@@ -687,8 +751,28 @@ dx_probe(const struct qstr *d_name, struct inode *dir,
 	if (hinfo->hash_version <= DX_HASH_TEA)
 		hinfo->hash_version += EXT4_SB(dir->i_sb)->s_hash_unsigned;
 	hinfo->seed = EXT4_SB(dir->i_sb)->s_hash_seed;
+#ifdef CONFIG_EXT4_FS_ENCRYPTION
+	if (d_name) {
+		struct ext4_fname_crypto_ctx *ctx = NULL;
+		int res;
+
+		/* Check if the directory is encrypted */
+		ctx = ext4_get_fname_crypto_ctx(dir, EXT4_NAME_LEN);
+		if (IS_ERR(ctx)) {
+			ret_err = ERR_PTR(PTR_ERR(ctx));
+			goto fail;
+		}
+		res = ext4_fname_usr_to_hash(ctx, d_name, hinfo);
+		if (res < 0) {
+			ret_err = ERR_PTR(res);
+			goto fail;
+		}
+		ext4_put_fname_crypto_ctx(&ctx);
+	}
+#else
 	if (d_name)
 		ext4fs_dirhash(d_name->name, d_name->len, hinfo);
+#endif
 	hash = hinfo->hash;
 
 	if (root->info.unused_flags & 1) {
@@ -773,6 +857,7 @@ fail:
 		brelse(frame->bh);
 		frame--;
 	}
+
 	if (ret_err == ERR_PTR(ERR_BAD_DX_DIR))
 		ext4_warning(dir->i_sb,
 			     "Corrupt dir inode %lu, running e2fsck is "
@@ -917,15 +1002,7 @@ static int htree_dirblock_to_tree(struct file *dir_file,
 			/* silently ignore the rest of the block */
 			break;
 		}
-#ifdef CONFIG_EXT4_FS_ENCRYPTION
-		err = ext4_fname_disk_to_hash(ctx, de, hinfo);
-		if (err < 0) {
-			count = err;
-			goto errout;
-		}
-#else
 		ext4fs_dirhash(de->name, de->name_len, hinfo);
-#endif
 		if ((hinfo->hash < start_hash) ||
 		    ((hinfo->hash == start_hash) &&
 		     (hinfo->minor_hash < start_minor_hash)))
@@ -941,7 +1018,7 @@ static int htree_dirblock_to_tree(struct file *dir_file,
 				   &tmp_str);
 		} else {
 			/* Directory is encrypted */
-			err = ext4_fname_disk_to_usr(ctx, de,
+			err = ext4_fname_disk_to_usr(ctx, hinfo, de,
 						     &fname_crypto_str);
 			if (err < 0) {
 				count = err;
@@ -986,6 +1063,7 @@ int ext4_htree_fill_tree(struct file *dir_file, __u32 start_hash,
 	int count = 0;
 	int ret, err;
 	__u32 hashval;
+	struct ext4_str tmp_str;
 
 	dxtrace(printk(KERN_DEBUG "In htree_fill_tree, start hash: %x:%x\n",
 		       start_hash, start_minor_hash));
@@ -1021,14 +1099,22 @@ int ext4_htree_fill_tree(struct file *dir_file, __u32 start_hash,
 	/* Add '.' and '..' from the htree header */
 	if (!start_hash && !start_minor_hash) {
 		de = (struct ext4_dir_entry_2 *) frames[0].bh->b_data;
-		if ((err = ext4_htree_store_dirent(dir_file, 0, 0, de)) != 0)
+		tmp_str.name = de->name;
+		tmp_str.len = de->name_len;
+		err = ext4_htree_store_dirent(dir_file, 0, 0,
+					      de, &tmp_str);
+		if (err != 0)
 			goto errout;
 		count++;
 	}
 	if (start_hash < 2 || (start_hash ==2 && start_minor_hash==0)) {
 		de = (struct ext4_dir_entry_2 *) frames[0].bh->b_data;
 		de = ext4_next_entry(de, dir->i_sb->s_blocksize);
-		if ((err = ext4_htree_store_dirent(dir_file, 2, 0, de)) != 0)
+		tmp_str.name = de->name;
+		tmp_str.len = de->name_len;
+		err = ext4_htree_store_dirent(dir_file, 2, 0,
+					      de, &tmp_str);
+		if (err != 0)
 			goto errout;
 		count++;
 	}
@@ -1093,26 +1179,10 @@ static int dx_make_map(struct inode *dir, struct ext4_dir_entry_2 *de,
 	int count = 0;
 	char *base = (char *) de;
 	struct dx_hash_info h = *hinfo;
-#ifdef CONFIG_EXT4_FS_ENCRYPTION
-	struct ext4_fname_crypto_ctx *ctx = NULL;
-	int err;
-
-	ctx = ext4_get_fname_crypto_ctx(dir, EXT4_NAME_LEN);
-	if (IS_ERR(ctx))
-		return PTR_ERR(ctx);
-#endif
 
 	while ((char *) de < base + blocksize) {
 		if (de->name_len && de->inode) {
-#ifdef CONFIG_EXT4_FS_ENCRYPTION
-			err = ext4_fname_disk_to_hash(ctx, de, &h);
-			if (err < 0) {
-				ext4_put_fname_crypto_ctx(&ctx);
-				return err;
-			}
-#else
 			ext4fs_dirhash(de->name, de->name_len, &h);
-#endif
 			map_tail--;
 			map_tail->hash = h.hash;
 			map_tail->offs = ((char *) de - base)>>2;
@@ -1123,9 +1193,6 @@ static int dx_make_map(struct inode *dir, struct ext4_dir_entry_2 *de,
 		/* XXX: do we need to check rec_len == 0 case? -Chris */
 		de = ext4_next_entry(de, blocksize);
 	}
-#ifdef CONFIG_EXT4_FS_ENCRYPTION
-	ext4_put_fname_crypto_ctx(&ctx);
-#endif
 	return count;
 }
 
@@ -1187,16 +1254,8 @@ static inline int ext4_match(struct ext4_fname_crypto_ctx *ctx,
 		return 0;
 
 #ifdef CONFIG_EXT4_FS_ENCRYPTION
-	if (ctx) {
-		/* Directory is encrypted */
-		res = ext4_fname_disk_to_usr(ctx, de, fname_crypto_str);
-		if (res < 0)
-			return res;
-		if (len != res)
-			return 0;
-		res = memcmp(name, fname_crypto_str->name, len);
-		return (res == 0) ? 1 : 0;
-	}
+	if (ctx)
+		return ext4_fname_match(ctx, fname_crypto_str, len, name, de);
 #endif
 	if (len != de->name_len)
 		return 0;
@@ -1223,16 +1282,6 @@ int search_dir(struct buffer_head *bh, char *search_buf, int buf_size,
 	ctx = ext4_get_fname_crypto_ctx(dir, EXT4_NAME_LEN);
 	if (IS_ERR(ctx))
 		return -1;
-
-	if (ctx != NULL) {
-		/* Allocate buffer to hold maximum name length */
-		res = ext4_fname_crypto_alloc_buffer(ctx, EXT4_NAME_LEN,
-						     &fname_crypto_str);
-		if (res < 0) {
-			ext4_put_fname_crypto_ctx(&ctx);
-			return -1;
-		}
-	}
 
 	de = (struct ext4_dir_entry_2 *)search_buf;
 	dlimit = search_buf + buf_size;
@@ -1716,8 +1765,10 @@ static struct ext4_dir_entry_2 *do_split(handle_t *handle, struct inode *dir,
 		initialize_dirent_tail(t, blocksize);
 	}
 
-	dxtrace(dx_show_leaf (hinfo, (struct ext4_dir_entry_2 *) data1, blocksize, 1));
-	dxtrace(dx_show_leaf (hinfo, (struct ext4_dir_entry_2 *) data2, blocksize, 1));
+	dxtrace(dx_show_leaf(dir, hinfo, (struct ext4_dir_entry_2 *) data1,
+			blocksize, 1));
+	dxtrace(dx_show_leaf(dir, hinfo, (struct ext4_dir_entry_2 *) data2,
+			blocksize, 1));
 
 	/* Which block gets the new entry? */
 	if (hinfo->hash >= hash2) {
@@ -1770,14 +1821,6 @@ int ext4_find_dest_de(struct inode *dir, struct inode *inode,
 			return res;
 		}
 		reclen = EXT4_DIR_REC_LEN(res);
-
-		/* Allocate buffer to hold maximum name length */
-		res = ext4_fname_crypto_alloc_buffer(ctx, EXT4_NAME_LEN,
-						     &fname_crypto_str);
-		if (res < 0) {
-			ext4_put_fname_crypto_ctx(&ctx);
-			return -1;
-		}
 	}
 
 	de = (struct ext4_dir_entry_2 *)buf;
@@ -2532,6 +2575,7 @@ retry:
 	return err;
 }
 
+#if 0
 static int ext4_tmpfile(struct inode *dir, struct dentry *dentry, umode_t mode)
 {
 	handle_t *handle;
@@ -2569,6 +2613,7 @@ err_unlock_inode:
 	unlock_new_inode(inode);
 	return err;
 }
+#endif
 
 struct ext4_dir_entry_2 *ext4_init_dot_dotdot(struct inode *inode,
 			  struct ext4_dir_entry_2 *de,
@@ -2977,7 +3022,7 @@ static int ext4_rmdir(struct inode *dir, struct dentry *dentry)
 		goto end_rmdir;
 
 	retval = -ENOTEMPTY;
-	if (!empty_dir(inode))
+	if (!ext4_empty_dir(inode))
 		goto end_rmdir;
 
 	handle = ext4_journal_start(dir, EXT4_HT_DIR,
@@ -3088,8 +3133,11 @@ static int ext4_symlink(struct inode *dir,
 {
 	handle_t *handle;
 	struct inode *inode;
-	int l, err, retries = 0;
+	int err, len = strlen(symname);
 	int credits;
+	bool encryption_required;
+	struct ext4_str disk_link;
+	struct ext4_encrypted_symlink_data *sd = NULL;
 
 	disk_link.len = len + 1;
 	disk_link.name = (char *) symname;
@@ -3103,7 +3151,7 @@ static int ext4_symlink(struct inode *dir,
 
 	dquot_initialize(dir);
 
-	if (l > EXT4_N_BLOCKS * 4) {
+	if ((disk_link.len > EXT4_N_BLOCKS * 4)) {
 		/*
 		 * For non-fast symlinks, we just allocate inode and put it on
 		 * orphan list in the first transaction => we need bitmap,
@@ -3122,16 +3170,49 @@ static int ext4_symlink(struct inode *dir,
 		credits = EXT4_DATA_TRANS_BLOCKS(dir->i_sb) +
 			  EXT4_INDEX_EXTRA_TRANS_BLOCKS + 3;
 	}
-retry:
+
 	inode = ext4_new_inode_start_handle(dir, S_IFLNK|S_IRWXUGO,
 					    &dentry->d_name, 0, NULL,
 					    EXT4_HT_DIR, credits);
 	handle = ext4_journal_current_handle();
-	err = PTR_ERR(inode);
-	if (IS_ERR(inode))
-		goto out_stop;
+	if (IS_ERR(inode)) {
+		if (handle)
+			ext4_journal_stop(handle);
+		return PTR_ERR(inode);
+	}
 
-	if (l > EXT4_N_BLOCKS * 4) {
+	if (encryption_required) {
+		struct ext4_fname_crypto_ctx *ctx = NULL;
+		struct qstr istr;
+		struct ext4_str ostr;
+
+		sd = kzalloc(disk_link.len, GFP_NOFS);
+		if (!sd) {
+			err = -ENOMEM;
+			goto err_drop_inode;
+		}
+		err = ext4_inherit_context(dir, inode);
+		if (err)
+			goto err_drop_inode;
+		ctx = ext4_get_fname_crypto_ctx(inode,
+						inode->i_sb->s_blocksize);
+		if (IS_ERR_OR_NULL(ctx)) {
+			/* We just set the policy, so ctx should not be NULL */
+			err = (ctx == NULL) ? -EIO : PTR_ERR(ctx);
+			goto err_drop_inode;
+		}
+		istr.name = (const unsigned char *) symname;
+		istr.len = len;
+		ostr.name = sd->encrypted_path;
+		err = ext4_fname_usr_to_disk(ctx, &istr, &ostr);
+		ext4_put_fname_crypto_ctx(&ctx);
+		if (err < 0)
+			goto err_drop_inode;
+		sd->len = cpu_to_le16(ostr.len);
+		disk_link.name = (char *) sd;
+	}
+
+	if ((disk_link.len > EXT4_N_BLOCKS * 4)) {
 		inode->i_op = &ext4_symlink_inode_operations;
 		ext4_set_aops(inode);
 		/*
@@ -3147,9 +3228,10 @@ retry:
 		drop_nlink(inode);
 		err = ext4_orphan_add(handle, inode);
 		ext4_journal_stop(handle);
+		handle = NULL;
 		if (err)
 			goto err_drop_inode;
-		err = __page_symlink(inode, symname, l, 1);
+		err = __page_symlink(inode, disk_link.name, disk_link.len, 1);
 		if (err)
 			goto err_drop_inode;
 		/*
@@ -3161,34 +3243,37 @@ retry:
 				EXT4_INDEX_EXTRA_TRANS_BLOCKS + 1);
 		if (IS_ERR(handle)) {
 			err = PTR_ERR(handle);
+			handle = NULL;
 			goto err_drop_inode;
 		}
 		set_nlink(inode, 1);
 		err = ext4_orphan_del(handle, inode);
-		if (err) {
-			ext4_journal_stop(handle);
-			clear_nlink(inode);
+		if (err)
 			goto err_drop_inode;
-		}
 	} else {
 		/* clear the extent format for fast symlink */
 		ext4_clear_inode_flag(inode, EXT4_INODE_EXTENTS);
-		inode->i_op = &ext4_fast_symlink_inode_operations;
-		memcpy((char *)&EXT4_I(inode)->i_data, symname, l);
-		inode->i_size = l-1;
+		inode->i_op = encryption_required ?
+			&ext4_symlink_inode_operations :
+			&ext4_fast_symlink_inode_operations;
+		memcpy((char *)&EXT4_I(inode)->i_data, disk_link.name,
+		       disk_link.len);
+		inode->i_size = disk_link.len - 1;
 	}
 	EXT4_I(inode)->i_disksize = inode->i_size;
 	err = ext4_add_nondir(handle, dentry, inode);
 	if (!err && IS_DIRSYNC(dir))
 		ext4_handle_sync(handle);
 
-out_stop:
 	if (handle)
 		ext4_journal_stop(handle);
-	if (err == -ENOSPC && ext4_should_retry_alloc(dir->i_sb, &retries))
-		goto retry;
+	kfree(sd);
 	return err;
 err_drop_inode:
+	if (handle)
+		ext4_journal_stop(handle);
+	kfree(sd);
+	clear_nlink(inode);
 	unlock_new_inode(inode);
 	iput(inode);
 	return err;
@@ -3412,6 +3497,7 @@ static void ext4_rename_delete(handle_t *handle, struct ext4_renament *ent,
 	}
 }
 
+#if 0
 static void ext4_update_dir_count(handle_t *handle, struct ext4_renament *ent)
 {
 	if (ent->dir_nlink_delta) {
@@ -3455,6 +3541,7 @@ retry:
 	}
 	return wh;
 }
+#endif
 
 /*
  * Anybody can rename anything with this: the permission checks are left to the
@@ -3532,15 +3619,19 @@ static int ext4_rename(struct inode *old_dir, struct dentry *old_dentry,
 
 	credits = (2 * EXT4_DATA_TRANS_BLOCKS(old.dir->i_sb) +
 		   EXT4_INDEX_EXTRA_TRANS_BLOCKS + 2);
+#if 0
 	if (!(flags & RENAME_WHITEOUT)) {
+#endif
 		handle = ext4_journal_start(old.dir, EXT4_HT_DIR, credits);
 		if (IS_ERR(handle))
 			return PTR_ERR(handle);
+#if 0
 	} else {
 		whiteout = ext4_whiteout_for_rename(&old, credits, &handle);
 		if (IS_ERR(whiteout))
 			return PTR_ERR(whiteout);
 	}
+#endif
 
 	if (IS_DIRSYNC(old.dir) || IS_DIRSYNC(new.dir))
 		ext4_handle_sync(handle);
@@ -3548,7 +3639,7 @@ static int ext4_rename(struct inode *old_dir, struct dentry *old_dentry,
 	if (S_ISDIR(old.inode->i_mode)) {
 		if (new.inode) {
 			retval = -ENOTEMPTY;
-			if (!empty_dir(new.inode))
+			if (!ext4_empty_dir(new.inode))
 				goto end_rename;
 		} else {
 			retval = -EMLINK;
@@ -3622,8 +3713,9 @@ static int ext4_rename(struct inode *old_dir, struct dentry *old_dentry,
 
 		ext4_dec_count(handle, old.dir);
 		if (new.inode) {
-			/* checked empty_dir above, can't have another parent,
-			 * ext4_dec_count() won't work for many-linked dirs */
+			/* checked ext4_empty_dir above, can't have another
+			 * parent, ext4_dec_count() won't work for many-linked
+			 * dirs */
 			clear_nlink(new.inode);
 		} else {
 			ext4_inc_count(handle, new.dir);
@@ -3654,6 +3746,7 @@ end_rename:
 	return retval;
 }
 
+#if 0
 static int ext4_cross_rename(struct inode *old_dir, struct dentry *old_dentry,
 			     struct inode *new_dir, struct dentry *new_dentry)
 {
@@ -3776,20 +3869,12 @@ end_rename:
 		ext4_journal_stop(handle);
 	return retval;
 }
+#endif
 
 static int ext4_rename2(struct inode *old_dir, struct dentry *old_dentry,
-			struct inode *new_dir, struct dentry *new_dentry,
-			unsigned int flags)
+			struct inode *new_dir, struct dentry *new_dentry)
 {
-	if (flags & ~(RENAME_NOREPLACE | RENAME_EXCHANGE | RENAME_WHITEOUT))
-		return -EINVAL;
-
-	if (flags & RENAME_EXCHANGE) {
-		return ext4_cross_rename(old_dir, old_dentry,
-					 new_dir, new_dentry);
-	}
-
-	return ext4_rename(old_dir, old_dentry, new_dir, new_dentry, flags);
+	return ext4_rename(old_dir, old_dentry, new_dir, new_dentry, 0);
 }
 
 /*
@@ -3804,15 +3889,19 @@ const struct inode_operations ext4_dir_inode_operations = {
 	.mkdir		= ext4_mkdir,
 	.rmdir		= ext4_rmdir,
 	.mknod		= ext4_mknod,
+#if 0
 	.tmpfile	= ext4_tmpfile,
-	.rename2	= ext4_rename2,
+#endif
+	.rename		= ext4_rename2,
 	.setattr	= ext4_setattr,
 	.setxattr	= generic_setxattr,
 	.getxattr	= generic_getxattr,
 	.listxattr	= ext4_listxattr,
 	.removexattr	= generic_removexattr,
 	.get_acl	= ext4_get_acl,
+#if 0
 	.set_acl	= ext4_set_acl,
+#endif
 	.fiemap         = ext4_fiemap,
 };
 
@@ -3823,5 +3912,7 @@ const struct inode_operations ext4_special_inode_operations = {
 	.listxattr	= ext4_listxattr,
 	.removexattr	= generic_removexattr,
 	.get_acl	= ext4_get_acl,
+#if 0
 	.set_acl	= ext4_set_acl,
+#endif
 };
