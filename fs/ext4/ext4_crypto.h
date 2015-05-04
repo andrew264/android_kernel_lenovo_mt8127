@@ -66,10 +66,23 @@ struct ext4_encryption_context {
 #define EXT4_KEY_DESC_PREFIX "ext4:"
 #define EXT4_KEY_DESC_PREFIX_SIZE 5
 
+/* This is passed in from userspace into the kernel keyring */
 struct ext4_encryption_key {
-	uint32_t mode;
-	char raw[EXT4_MAX_KEY_SIZE];
-	uint32_t size;
+        __u32 mode;
+        char raw[EXT4_MAX_KEY_SIZE];
+        __u32 size;
+} __attribute__((__packed__));
+
+struct ext4_crypt_info {
+	unsigned char	ci_mode;
+	unsigned char	ci_size;
+	char		ci_data_mode;
+	char		ci_filename_mode;
+	char		ci_flags;
+	struct crypto_ablkcipher *ci_ctfm;
+	struct key	*ci_keyring_key;
+	char		ci_raw[EXT4_MAX_KEY_SIZE];
+	char		ci_master_key[EXT4_KEY_DESCRIPTOR_SIZE];
 };
 
 #define EXT4_CTX_REQUIRES_FREE_ENCRYPT_FL             0x00000001
@@ -121,14 +134,24 @@ struct ext4_str {
 	u32 len;
 };
 
-struct ext4_fname_crypto_ctx {
-	u32 lim;
-	struct crypto_ablkcipher *ctfm;
-	struct crypto_hash *htfm;
-	struct ext4_encryption_key key;
-	unsigned flags : 8;
-	unsigned has_valid_key : 1;
-	unsigned ctfm_key_is_ready : 1;
-};
+/**
+ * For encrypted symlinks, the ciphertext length is stored at the beginning
+ * of the string in little-endian format.
+ */
+struct ext4_encrypted_symlink_data {
+	__le16 len;
+	char encrypted_path[1];
+} __attribute__((__packed__));
+
+/**
+ * This function is used to calculate the disk space required to
+ * store a filename of length l in encrypted symlink format.
+ */
+static inline u32 encrypted_symlink_data_len(u32 l)
+{
+	if (l < EXT4_CRYPTO_BLOCK_SIZE)
+		l = EXT4_CRYPTO_BLOCK_SIZE;
+	return (l + sizeof(struct ext4_encrypted_symlink_data) - 1);
+}
 
 #endif	/* _EXT4_CRYPTO_H */
