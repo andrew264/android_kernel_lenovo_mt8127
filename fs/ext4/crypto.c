@@ -55,6 +55,9 @@ static mempool_t *ext4_bounce_page_pool;
 static LIST_HEAD(ext4_free_crypto_ctxs);
 static DEFINE_SPINLOCK(ext4_crypto_ctx_lock);
 
+static struct kmem_cache *ext4_crypto_ctx_cachep;
+struct kmem_cache *ext4_crypt_info_cachep;
+
 /**
  * ext4_release_crypto_ctx() - Releases an encryption context
  * @ctx: The encryption context to release.
@@ -77,31 +80,12 @@ void ext4_release_crypto_ctx(struct ext4_crypto_ctx *ctx)
 	ctx->w.bounce_page = NULL;
 	ctx->w.control_page = NULL;
 	if (ctx->flags & EXT4_CTX_REQUIRES_FREE_ENCRYPT_FL) {
-		if (ctx->tfm)
-			crypto_free_tfm(ctx->tfm);
-		kfree(ctx);
+		kmem_cache_free(ext4_crypto_ctx_cachep, ctx);
 	} else {
 		spin_lock_irqsave(&ext4_crypto_ctx_lock, flags);
 		list_add(&ctx->free_list, &ext4_free_crypto_ctxs);
 		spin_unlock_irqrestore(&ext4_crypto_ctx_lock, flags);
 	}
-}
-
-/**
- * ext4_alloc_and_init_crypto_ctx() - Allocates and inits an encryption context
- * @mask: The allocation mask.
- *
- * Return: An allocated and initialized encryption context on success. An error
- * value or NULL otherwise.
- */
-static struct ext4_crypto_ctx *ext4_alloc_and_init_crypto_ctx(gfp_t mask)
-{
-	struct ext4_crypto_ctx *ctx = kzalloc(sizeof(struct ext4_crypto_ctx),
-					      mask);
-
-	if (!ctx)
-		return ERR_PTR(-ENOMEM);
-	return ctx;
 }
 
 /**
@@ -120,9 +104,8 @@ struct ext4_crypto_ctx *ext4_get_crypto_ctx(struct inode *inode)
 	unsigned long flags;
 	struct ext4_crypt_info *ci = EXT4_I(inode)->i_crypt_info;
 
-	BUG_ON(ci == NULL);
-	if (!ext4_read_workqueue)
-		ext4_init_crypto();
+	if (ci == NULL)
+		return ERR_PTR(-ENOKEY);
 
 	/*
 	 * We first try getting the ctx from a free list because in
@@ -141,9 +124,9 @@ struct ext4_crypto_ctx *ext4_get_crypto_ctx(struct inode *inode)
 		list_del(&ctx->free_list);
 	spin_unlock_irqrestore(&ext4_crypto_ctx_lock, flags);
 	if (!ctx) {
-		ctx = ext4_alloc_and_init_crypto_ctx(GFP_NOFS);
-		if (IS_ERR(ctx)) {
-			res = PTR_ERR(ctx);
+		ctx = kmem_cache_zalloc(ext4_crypto_ctx_cachep, GFP_NOFS);
+		if (!ctx) {
+			res = -ENOMEM;
 			goto out;
 		}
 		ctx->flags |= EXT4_CTX_REQUIRES_FREE_ENCRYPT_FL;
@@ -151,36 +134,6 @@ struct ext4_crypto_ctx *ext4_get_crypto_ctx(struct inode *inode)
 		ctx->flags &= ~EXT4_CTX_REQUIRES_FREE_ENCRYPT_FL;
 	}
 	ctx->flags &= ~EXT4_WRITE_PATH_FL;
-
-	/* Allocate a new Crypto API context if we don't already have
-	 * one or if it isn't the right mode. */
-	if (ctx->tfm && (ctx->mode != ci->ci_data_mode)) {
-		crypto_free_tfm(ctx->tfm);
-		ctx->tfm = NULL;
-		ctx->mode = EXT4_ENCRYPTION_MODE_INVALID;
-	}
-	if (!ctx->tfm) {
-		switch (ci->ci_data_mode) {
-		case EXT4_ENCRYPTION_MODE_AES_256_XTS:
-			ctx->tfm = crypto_ablkcipher_tfm(
-				crypto_alloc_ablkcipher("xts(aes)", 0, 0));
-			break;
-		case EXT4_ENCRYPTION_MODE_AES_256_GCM:
-			/* TODO(mhalcrow): AEAD w/ gcm(aes);
-			 * crypto_aead_setauthsize() */
-			ctx->tfm = ERR_PTR(-ENOTSUPP);
-			break;
-		default:
-			BUG();
-		}
-		if (IS_ERR_OR_NULL(ctx->tfm)) {
-			res = PTR_ERR(ctx->tfm);
-			ctx->tfm = NULL;
-			goto out;
-		}
-		ctx->mode = ci->ci_data_mode;
-	}
-	BUG_ON(ci->ci_size != ext4_encryption_key_size(ci->ci_data_mode));
 
 out:
 	if (res) {
@@ -201,11 +154,8 @@ void ext4_exit_crypto(void)
 {
 	struct ext4_crypto_ctx *pos, *n;
 
-	list_for_each_entry_safe(pos, n, &ext4_free_crypto_ctxs, free_list) {
-		if (pos->tfm)
-			crypto_free_tfm(pos->tfm);
-		kfree(pos);
-	}
+	list_for_each_entry_safe(pos, n, &ext4_free_crypto_ctxs, free_list)
+		kmem_cache_free(ext4_crypto_ctx_cachep, pos);
 	INIT_LIST_HEAD(&ext4_free_crypto_ctxs);
 	if (ext4_bounce_page_pool)
 		mempool_destroy(ext4_bounce_page_pool);
@@ -213,6 +163,12 @@ void ext4_exit_crypto(void)
 	if (ext4_read_workqueue)
 		destroy_workqueue(ext4_read_workqueue);
 	ext4_read_workqueue = NULL;
+	if (ext4_crypto_ctx_cachep)
+		kmem_cache_destroy(ext4_crypto_ctx_cachep);
+	ext4_crypto_ctx_cachep = NULL;
+	if (ext4_crypt_info_cachep)
+		kmem_cache_destroy(ext4_crypt_info_cachep);
+	ext4_crypt_info_cachep = NULL;
 }
 
 /**
@@ -225,23 +181,31 @@ void ext4_exit_crypto(void)
  */
 int ext4_init_crypto(void)
 {
-	int i, res;
+	int i, res = -ENOMEM;
 
 	mutex_lock(&crypto_init);
 	if (ext4_read_workqueue)
 		goto already_initialized;
 	ext4_read_workqueue = alloc_workqueue("ext4_crypto", WQ_HIGHPRI, 0);
-	if (!ext4_read_workqueue) {
-		res = -ENOMEM;
+	if (!ext4_read_workqueue)
 		goto fail;
-	}
+
+	ext4_crypto_ctx_cachep = KMEM_CACHE(ext4_crypto_ctx,
+					    SLAB_RECLAIM_ACCOUNT);
+	if (!ext4_crypto_ctx_cachep)
+		goto fail;
+
+	ext4_crypt_info_cachep = KMEM_CACHE(ext4_crypt_info,
+					    SLAB_RECLAIM_ACCOUNT);
+	if (!ext4_crypt_info_cachep)
+		goto fail;
 
 	for (i = 0; i < num_prealloc_crypto_ctxs; i++) {
 		struct ext4_crypto_ctx *ctx;
 
-		ctx = ext4_alloc_and_init_crypto_ctx(GFP_KERNEL);
-		if (IS_ERR(ctx)) {
-			res = PTR_ERR(ctx);
+		ctx = kmem_cache_zalloc(ext4_crypto_ctx_cachep, GFP_NOFS);
+		if (!ctx) {
+			res = -ENOMEM;
 			goto fail;
 		}
 		list_add(&ctx->free_list, &ext4_free_crypto_ctxs);
@@ -305,32 +269,11 @@ static int ext4_page_crypto(struct ext4_crypto_ctx *ctx,
 	struct ablkcipher_request *req = NULL;
 	DECLARE_EXT4_COMPLETION_RESULT(ecr);
 	struct scatterlist dst, src;
-	struct ext4_inode_info *ei = EXT4_I(inode);
-	struct crypto_ablkcipher *atfm = __crypto_ablkcipher_cast(ctx->tfm);
+	struct ext4_crypt_info *ci = EXT4_I(inode)->i_crypt_info;
+	struct crypto_ablkcipher *tfm = ci->ci_ctfm;
 	int res = 0;
 
-	BUG_ON(!ctx->tfm);
-	BUG_ON(ctx->mode != ei->i_crypt_info->ci_data_mode);
-
-	if (ctx->mode != EXT4_ENCRYPTION_MODE_AES_256_XTS) {
-		printk_ratelimited(KERN_ERR
-				   "%s: unsupported crypto algorithm: %d\n",
-				   __func__, ctx->mode);
-		return -ENOTSUPP;
-	}
-
-	crypto_ablkcipher_clear_flags(atfm, ~0);
-	crypto_tfm_set_flags(ctx->tfm, CRYPTO_TFM_REQ_WEAK_KEY);
-
-	res = crypto_ablkcipher_setkey(atfm, ei->i_crypt_info->ci_raw,
-				       ei->i_crypt_info->ci_size);
-	if (res) {
-		printk_ratelimited(KERN_ERR
-				   "%s: crypto_ablkcipher_setkey() failed\n",
-				   __func__);
-		return res;
-	}
-	req = ablkcipher_request_alloc(atfm, GFP_NOFS);
+	req = ablkcipher_request_alloc(tfm, GFP_NOFS);
 	if (!req) {
 		printk_ratelimited(KERN_ERR
 				   "%s: crypto_request_alloc() failed\n",
