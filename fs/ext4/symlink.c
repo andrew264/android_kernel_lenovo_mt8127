@@ -38,7 +38,7 @@ static void *ext4_follow_link(struct dentry *dentry, struct nameidata *nd)
 	if (!ext4_encrypted_inode(inode))
 		return page_follow_link_light(dentry, nd);
 
-	res = ext4_setup_fname_crypto(inode);
+	res = ext4_get_encryption_info(inode);
 	if (res)
 		return ERR_PTR(res);
 
@@ -133,7 +133,7 @@ const struct inode_operations ext4_symlink_inode_operations = {
 
 const struct inode_operations ext4_fast_symlink_inode_operations = {
 	.readlink	= generic_readlink,
-	.follow_link	= ext4_follow_link,
+	.follow_link    = ext4_follow_fast_link,
 	.setattr	= ext4_setattr,
 	.setxattr	= generic_setxattr,
 	.getxattr	= generic_getxattr,

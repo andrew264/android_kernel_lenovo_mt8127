@@ -476,7 +476,7 @@ static inline void ext4_check_flag_values(void)
 	CHECK_FLAG_VALUE(DIRTY);
 	CHECK_FLAG_VALUE(COMPRBLK);
 	CHECK_FLAG_VALUE(NOCOMPR);
-	CHECK_FLAG_VALUE(ECOMPR);
+	CHECK_FLAG_VALUE(ENCRYPT);
 	CHECK_FLAG_VALUE(INDEX);
 	CHECK_FLAG_VALUE(IMAGIC);
 	CHECK_FLAG_VALUE(JOURNAL_DATA);
@@ -920,7 +920,6 @@ struct ext4_inode_info {
 
 	/* on-disk additional length */
 	__u16 i_extra_isize;
-	char i_crypt_policy_flags;
 
 	/* Indicate the inline data space. */
 	u16 i_inline_off;
@@ -2057,6 +2056,7 @@ int ext4_get_policy(struct inode *inode,
 		    struct ext4_encryption_policy *policy);
 
 /* crypto.c */
+extern struct kmem_cache *ext4_crypt_info_cachep;
 bool ext4_valid_contents_enc_mode(uint32_t mode);
 uint32_t ext4_validate_encryption_key_size(uint32_t mode, uint32_t size);
 extern struct workqueue_struct *ext4_read_workqueue;
@@ -2103,7 +2103,6 @@ int ext4_fname_usr_to_disk(struct inode *inode,
 			   const struct qstr *iname,
 			   struct ext4_str *oname);
 #ifdef CONFIG_EXT4_FS_ENCRYPTION
-int ext4_setup_fname_crypto(struct inode *inode);
 void ext4_fname_crypto_free_buffer(struct ext4_str *crypto_str);
 int ext4_fname_setup_filename(struct inode *dir, const struct qstr *iname,
 			      int lookup, struct ext4_filename *fname);
@@ -2129,7 +2128,8 @@ static inline void ext4_fname_free_filename(struct ext4_filename *fname) { }
 
 
 /* crypto_key.c */
-void ext4_free_encryption_info(struct inode *inode);
+void ext4_free_crypt_info(struct ext4_crypt_info *ci);
+void ext4_free_encryption_info(struct inode *inode, struct ext4_crypt_info *ci);
 int _ext4_get_encryption_info(struct inode *inode);
 
 #ifdef CONFIG_EXT4_FS_ENCRYPTION
@@ -2148,6 +2148,11 @@ static inline int ext4_get_encryption_info(struct inode *inode)
 	return 0;
 }
 
+static inline struct ext4_crypt_info *ext4_encryption_info(struct inode *inode)
+{
+	return EXT4_I(inode)->i_crypt_info;
+}
+
 #else
 static inline int ext4_has_encryption_key(struct inode *inode)
 {
@@ -2156,6 +2161,10 @@ static inline int ext4_has_encryption_key(struct inode *inode)
 static inline int ext4_get_encryption_info(struct inode *inode)
 {
 	return 0;
+}
+static inline struct ext4_crypt_info *ext4_encryption_info(struct inode *inode)
+{
+	return NULL;
 }
 #endif
 
