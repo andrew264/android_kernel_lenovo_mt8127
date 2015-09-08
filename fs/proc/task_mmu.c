@@ -329,7 +329,11 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
 
 	/* We don't show the stack guard page in /proc/maps */
 	start = vma->vm_start;
+	if (stack_guard_page_start(vma, start))
+		start += PAGE_SIZE;
 	end = vma->vm_end;
+	if (stack_guard_page_end(vma, end))
+		end -= PAGE_SIZE;
 
 	seq_printf(m, "%08lx-%08lx %c%c%c%c %08llx %02x:%02x %lu %n",
 			start,
@@ -493,18 +497,9 @@ struct mem_size_stats {
 	unsigned long swap;
 	unsigned long nonlinear;
 	u64 pss;
-        u64 pswap;
+	u64 swap_pss;
 };
 
-#ifdef CONFIG_SWAP 
-extern struct swap_info_struct *swap_info_get(swp_entry_t entry);
-extern void swap_info_unlock(struct swap_info_struct *si);
-#endif // CONFIG_SWAP 
-
-static inline unsigned char swap_count(unsigned char ent)
-{
-	return ent & ~SWAP_HAS_CACHE;	/* may include SWAP_HAS_CONT flag */
-}
 
 static void smaps_pte_entry(pte_t ptent, unsigned long addr,
 		unsigned long ptent_size, struct mm_walk *walk)
@@ -521,27 +516,18 @@ static void smaps_pte_entry(pte_t ptent, unsigned long addr,
 		swp_entry_t swpent = pte_to_swp_entry(ptent);
 
 		if (!non_swap_entry(swpent)) {
-#ifdef CONFIG_SWAP
-	                swp_entry_t entry;
-		        struct swap_info_struct *p;
-#endif // CONFIG_SWAP
+			int mapcount;
 
-			mss->swap += ptent_size;
+			mss->swap += PAGE_SIZE;
+			mapcount = swp_swapcount(swpent);
+			if (mapcount >= 2) {
+				u64 pss_delta = (u64)PAGE_SIZE << PSS_SHIFT;
 
-#ifdef CONFIG_SWAP
-			entry = pte_to_swp_entry(ptent);
-			if (non_swap_entry(entry))
-				return;
-			p = swap_info_get(entry);
-			if (p) {
-				int swapcount = swap_count(p->swap_map[swp_offset(entry)]);
-				if (swapcount == 0) {
-					swapcount = 1;
-				}
-				mss->pswap += (ptent_size << PSS_SHIFT) / swapcount;
-				swap_info_unlock(p);
+				do_div(pss_delta, mapcount);
+				mss->swap_pss += pss_delta;
+			} else {
+				mss->swap_pss += (u64)PAGE_SIZE << PSS_SHIFT;
 			}
-#endif // CONFIG_SWAP
 		} else if (is_migration_entry(swpent))
 			page = migration_entry_to_page(swpent);
 	} else if (pte_file(ptent)) {
@@ -691,7 +677,7 @@ static int show_smap(struct seq_file *m, void *v, int is_pid)
 		   "Anonymous:      %8lu kB\n"
 		   "AnonHugePages:  %8lu kB\n"
 		   "Swap:           %8lu kB\n"
-		   "PSwap:          %8lu kB\n"
+		   "SwapPss:        %8lu kB\n"
 		   "KernelPageSize: %8lu kB\n"
 		   "MMUPageSize:    %8lu kB\n"
 		   "Locked:         %8lu kB\n",
@@ -706,7 +692,7 @@ static int show_smap(struct seq_file *m, void *v, int is_pid)
 		   mss.anonymous >> 10,
 		   mss.anonymous_thp >> 10,
 		   mss.swap >> 10,
-		   (unsigned long)(mss.pswap >> (10 + PSS_SHIFT)),
+		   (unsigned long)(mss.swap_pss >> (10 + PSS_SHIFT)),
 		   vma_kernel_pagesize(vma) >> 10,
 		   vma_mmu_pagesize(vma) >> 10,
 		   (vma->vm_flags & VM_LOCKED) ?
@@ -897,14 +883,14 @@ typedef struct {
 } pagemap_entry_t;
 
 struct pagemapread {
-	int pos, len;		/* units: PM_ENTRY_BYTES, not bytes */
+	int pos, len;
 	pagemap_entry_t *buffer;
 };
 
 #define PAGEMAP_WALK_SIZE	(PMD_SIZE)
 #define PAGEMAP_WALK_MASK	(PMD_MASK)
 
-#define PM_ENTRY_BYTES      sizeof(pagemap_entry_t)
+#define PM_ENTRY_BYTES      sizeof(u64)
 #define PM_STATUS_BITS      3
 #define PM_STATUS_OFFSET    (64 - PM_STATUS_BITS)
 #define PM_STATUS_MASK      (((1LL << PM_STATUS_BITS) - 1) << PM_STATUS_OFFSET)
@@ -1217,8 +1203,7 @@ out:
 
 static int pagemap_open(struct inode *inode, struct file *file)
 {
-	/* do not disclose physical addresses to unprivileged
-	   userspace (closes a rowhammer attack vector) */
+	/* do not disclose physical addresses: attack vector */
 	if (!capable(CAP_SYS_ADMIN))
 		return -EPERM;
 	return 0;
