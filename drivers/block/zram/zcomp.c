@@ -9,12 +9,16 @@
 
 #include <linux/kernel.h>
 #include <linux/string.h>
+#include <linux/err.h>
 #include <linux/slab.h>
 #include <linux/wait.h>
 #include <linux/sched.h>
 
 #include "zcomp.h"
 #include "zcomp_lzo.h"
+#ifdef CONFIG_ZRAM_LZ4_COMPRESS
+#include "zcomp_lz4.h"
+#endif
 
 /*
  * single zcomp_strm backend
@@ -41,6 +45,9 @@ struct zcomp_strm_multi {
 
 static struct zcomp_backend *backends[] = {
 	&zcomp_lzo,
+#ifdef CONFIG_ZRAM_LZ4_COMPRESS
+	&zcomp_lz4,
+#endif
 	NULL
 };
 
@@ -268,12 +275,14 @@ ssize_t zcomp_available_show(const char *comp, char *buf)
 
 	while (backends[i]) {
 		if (sysfs_streq(comp, backends[i]->name))
-			sz += sprintf(buf + sz, "[%s] ", backends[i]->name);
+			sz += scnprintf(buf + sz, PAGE_SIZE - sz - 2,
+					"[%s] ", backends[i]->name);
 		else
-			sz += sprintf(buf + sz, "%s ", backends[i]->name);
+			sz += scnprintf(buf + sz, PAGE_SIZE - sz - 2,
+					"%s ", backends[i]->name);
 		i++;
 	}
-	sz += sprintf(buf + sz, "\n");
+	sz += scnprintf(buf + sz, PAGE_SIZE - sz, "\n");
 	return sz;
 }
 
@@ -313,31 +322,34 @@ void zcomp_destroy(struct zcomp *comp)
 
 /*
  * search available compressors for requested algorithm.
- * allocate new zcomp and initialize it. return NULL
- * if requested algorithm is not supported or in case
- * of init error
+ * allocate new zcomp and initialize it. return compressing
+ * backend pointer or ERR_PTR if things went bad. ERR_PTR(-EINVAL)
+ * if requested algorithm is not supported, ERR_PTR(-ENOMEM) in
+ * case of allocation error, or any other error potentially
+ * returned by functions zcomp_strm_{multi,single}_create.
  */
 struct zcomp *zcomp_create(const char *compress, int max_strm)
 {
 	struct zcomp *comp;
 	struct zcomp_backend *backend;
+	int error;
 
 	backend = find_backend(compress);
 	if (!backend)
-		return NULL;
+		return ERR_PTR(-EINVAL);
 
 	comp = kzalloc(sizeof(struct zcomp), GFP_KERNEL);
 	if (!comp)
-		return NULL;
+		return ERR_PTR(-ENOMEM);
 
 	comp->backend = backend;
 	if (max_strm > 1)
-		zcomp_strm_multi_create(comp, max_strm);
+		error = zcomp_strm_multi_create(comp, max_strm);
 	else
-		zcomp_strm_single_create(comp);
-	if (!comp->stream) {
+		error = zcomp_strm_single_create(comp);
+	if (error) {
 		kfree(comp);
-		return NULL;
+		return ERR_PTR(error);
 	}
 	return comp;
 }
