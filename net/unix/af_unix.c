@@ -2531,17 +2531,12 @@ static unsigned int unix_dgram_poll(struct file *file, struct socket *sock,
 			mask |= POLLHUP;
 		/* connection hasn't started yet? */
 		if (sk->sk_state == TCP_SYN_SENT)
-    {
-        
 			return mask;
-	  }
-  }
+	}
 
 	/* No write status requested, avoid expensive OUT tests. */
 	if (!(poll_requested_events(wait) & (POLLWRBAND|POLLWRNORM|POLLOUT)))
-  {     
 		return mask;
-  }
 
 	writable = unix_writable(sk);
 	if (writable) {
