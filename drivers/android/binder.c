@@ -3550,7 +3550,8 @@ int binder_thread_write(struct binder_proc *proc, struct binder_thread *thread,
 				     "[DN #6]binder: %d:%d cookie 0x%016llx\n", proc->pid, thread->pid, (u64)cookie);
 #endif
 
-			ptr += sizeof(void *);
+			
+			ptr += sizeof(cookie);
 			list_for_each_entry(w, &proc->delivered_death, entry) {
 				struct binder_ref_death *tmp_death = container_of(w, struct binder_ref_death, work);
 
