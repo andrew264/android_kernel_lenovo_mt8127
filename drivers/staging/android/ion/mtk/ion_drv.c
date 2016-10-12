@@ -620,15 +620,6 @@ struct ion_heap * ion_drv_get_heap(int heap_id)
 static struct ion_platform_heap ion_drv_platform_heaps[] = 
 {
     {
-        .type = ION_HEAP_TYPE_SYSTEM_CONTIG,
-        .id = ION_HEAP_TYPE_SYSTEM_CONTIG,
-        .name = "ion_system_contig_heap",
-        .base = 0,
-        .size = 0,
-        .align = 0,
-        .priv = NULL,
-    },
-    {
         .type = ION_HEAP_TYPE_MULTIMEDIA,
         .id = ION_HEAP_TYPE_MULTIMEDIA,
         .name = "ion_mm_heap",
@@ -652,7 +643,7 @@ static struct ion_platform_heap ion_drv_platform_heaps[] =
 
 struct ion_platform_data ion_drv_platform_data = 
 {
-    .nr = 3,
+    .nr = 2,
     .heaps = ion_drv_platform_heaps,
 };
 
