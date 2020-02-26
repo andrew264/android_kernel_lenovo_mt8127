@@ -77,3 +77,8 @@ obj-$(CONFIG_TOUCHSCREEN_TPS6507X)	+= tps6507x-ts.o
 obj-y += gsl_point_id.o
 $(obj)/gsl_point_id.o:	$(srctree)/$(obj)/gsl_point_id
 	cp $(srctree)/$(obj)/gsl_point_id $(obj)/gsl_point_id.o
+
+# for sweep2wake, leave 1st to avoid merge issues at the end of the file
+obj-$(CONFIG_TOUCHSCREEN_SWEEP2WAKE)		+= sweep2wake.o
+# for doubletap2wake, leave 1st to avoid merge issues at the end of the file
+obj-$(CONFIG_TOUCHSCREEN_DOUBLETAP2WAKE)	+= doubletap2wake.o
