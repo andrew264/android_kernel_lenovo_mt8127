@@ -1,0 +1,13 @@
+menuconfig HUAQIN_SOLUTION
+  bool "Huaqin Properiatry Configruation"
+  default y
+  help
+    Check this to enable Huaqin properity configuration.
+
+if HUAQIN_SOLUTION
+
+source "drivers/misc/huaqin/hardwareinfo/Kconfig"
+
+endif
+
+

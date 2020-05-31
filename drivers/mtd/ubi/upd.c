@@ -370,7 +370,7 @@ int ubi_more_update_data(struct ubi_device *ubi, struct ubi_volume *vol,
 			return err;
 		vol->updating = 0;
 		err = to_write;
-		vfree(vol->upd_buf);
+		kfree(vol->upd_buf);
 	}
 
 	return err;
@@ -426,7 +426,7 @@ int ubi_more_leb_change_data(struct ubi_device *ubi, struct ubi_volume *vol,
 	if (vol->upd_received == vol->upd_bytes) {
 		vol->changing_leb = 0;
 		err = count;
-		vfree(vol->upd_buf);
+		kfree(vol->upd_buf);
 	}
 
 	return err;

@@ -538,15 +538,35 @@ done:
 
 static void rx_complete (struct urb *urb)
 {
-	struct sk_buff		*skb = (struct sk_buff *) urb->context;
-	struct skb_data		*entry = (struct skb_data *) skb->cb;
-	struct usbnet		*dev = entry->dev;
-	int			urb_status = urb->status;
-	enum skb_state		state;
+	// struct sk_buff		*skb = (struct sk_buff *) urb->context;
+	// struct skb_data		*entry = (struct skb_data *) skb->cb;
+	// struct usbnet		*dev = entry->dev;
+	// int			urb_status = urb->status;
+	// enum skb_state		state;
 
-	skb_put (skb, urb->actual_length);
+	// skb_put (skb, urb->actual_length);
+	// state = rx_done;
+	// entry->urb = NULL;
+
+
+	struct sk_buff *skb = (struct sk_buff *) urb->context;
+	struct skb_data *entry = (struct skb_data *) skb->cb;
+	struct usbnet *dev = entry->dev;
+	int urb_status = urb->status;
+	enum skb_state state;
+
+	SKB_LINEAR_ASSERT(skb);
+	skb->tail += urb->actual_length;
+	skb->len += urb->actual_length;
+	if (unlikely(skb->tail > skb->end))
+	{
+		printk(KERN_ERR" rx_complete \n");
+		return ;
+	}
 	state = rx_done;
-	entry->urb = NULL;
+	entry->urb = NULL; 
+
+
 
 	switch (urb_status) {
 	/* success */

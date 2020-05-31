@@ -1,0 +1,19 @@
+MTK_PLATFORM := $(subst ",,$(CONFIG_MTK_PLATFORM))
+ARCH_MTK_PROJECT := $(subst ",,$(CONFIG_ARCH_MTK_PROJECT))
+
+HUAQIN_CUSTOM_PATH := $(srctree)/drivers/misc/huaqin
+
+ifneq ($(CONFIG_ARM64), y)
+# For arm32, mach foloer
+MTK_PLATFORM_PATH_ROOT := $(srctree)/arch/arm/mach-$(MTK_PLATFORM)
+MTK_PROJECT_PATH_ROOT := $(srctree)/arch/arm/mach-$(MTK_PLATFORM)/$(ARCH_MTK_PROJECT)
+MTK_PLATFORM_PATH_ROOT := $(O)/arch/arm/mach-$(MTK_PLATFORM)
+MTK_PROJECT_OUT_PATH_ROOT := $(O)/arch/arm/mach-$(MTK_PLATFORM)/$(ARCH_MTK_PROJECT)
+else
+# For arm64, no mach-xxx foler
+MTK_PLATFORM_PATH_ROOT := $(srctree)/drivers/misc/mediatek/mach/$(MTK_PLATFORM)
+MTK_PROJECT_PATH_ROOT := $(srctree)/drivers/misc/mediatek/mach/$(MTK_PLATFORM)/$(ARCH_MTK_PROJECT)
+endif
+
+ccflags-y += -I$(MTK_PROJECT_OUT_PATH_ROOT)/dct/dct/inc \
+             -I$(MTK_PROJECT_PATH_ROOT)/core
