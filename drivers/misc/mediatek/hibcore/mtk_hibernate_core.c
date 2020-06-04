@@ -168,8 +168,6 @@ static void hibernate_restore(void)
 	hib_ftrace_buffer(1);
 
 	hib_hotplug_mode(1);
-
-	hib_warn("start trigger ipod\n");
 }
 
 extern int hybrid_sleep_mode(void);

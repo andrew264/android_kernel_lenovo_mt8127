@@ -50,7 +50,6 @@ obj-$(CONFIG_MTK_GPS)	    += gps/
 obj-y	+= m4u/
 #obj-y	+= mhl/
 obj-y	+= mtprof/
-obj-y	+= sched/
 obj-$(CONFIG_MTK_CMDQ) += cmdq/
 obj-y	+= mmp/
 obj-y	+= dispsys/
