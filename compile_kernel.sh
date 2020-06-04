@@ -11,7 +11,7 @@ export KBUILD_OUTPUT=output
 SECONDS=0
 
 echo "Starting to compile"
-make hq8127_tb_b2b_l_defconfig
+make mt8127_defconfig
 make zImage -j12 2>&1 | tee output/build.log
 
 if (( $SECONDS > 3600 )) ; then
