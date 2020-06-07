@@ -43,6 +43,9 @@
 #include <linux/sched.h>
 #include <linux/notifier.h>
 
+#define CREATE_TRACE_POINTS
+#include "trace/lowmemorykiller.h"
+
 #if defined (CONFIG_MTK_AEE_FEATURE) && defined (CONFIG_MT_ENG_BUILD)
 #include <linux/aee.h>
 #include <linux/disp_assert_layer.h>
@@ -435,6 +438,10 @@ static int lowmem_shrink(struct shrinker *s, struct shrink_control *sc)
 	}
 
 	if (selected) {
+		long cache_size = other_file * (long)(PAGE_SIZE / 1024);
+		long cache_limit = minfree * (long)(PAGE_SIZE / 1024);
+		long free = other_free * (long)(PAGE_SIZE / 1024);
+		trace_lowmemory_kill(selected, cache_size, cache_limit, free);
 		lowmem_print(1, "Killing '%s' (%d), adj %d, score_adj %hd,\n" \
 				"   to free %ldkB on behalf of '%s' (%d) because\n" \
 				"   cache %ldkB is below limit %ldkB for oom_score_adj %hd\n" \
@@ -444,10 +451,9 @@ static int lowmem_shrink(struct shrinker *s, struct shrink_control *sc)
 			     selected_oom_score_adj,
 			     selected_tasksize * (long)(PAGE_SIZE / 1024),
 			     current->comm, current->pid,
-			     other_file * (long)(PAGE_SIZE / 1024),
-			     minfree * (long)(PAGE_SIZE / 1024),
+			     cache_size, cache_limit,
 			     min_score_adj,
-			     other_free * (long)(PAGE_SIZE / 1024));
+			     free);
 		lowmem_deathpending_timeout = jiffies + HZ;
 
 		if (output_expect(enable_candidate_log)) {
