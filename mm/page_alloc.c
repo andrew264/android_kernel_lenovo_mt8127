@@ -2469,6 +2469,10 @@ bool gfp_pfmemalloc_allowed(gfp_t gfp_mask)
 	return !!(gfp_to_alloc_flags(gfp_mask) & ALLOC_NO_WATERMARKS);
 }
 
+
+/* To record minfree[0] in LMK. Initial value is 0. */
+size_t lmk_adjz_minfree = 0;
+
 /* Add for kswapd need too much CPU ANR issue */
 #ifdef CONFIG_MT_ENG_BUILD
 static uint32_t wakeup_kswapd_count = 0;
