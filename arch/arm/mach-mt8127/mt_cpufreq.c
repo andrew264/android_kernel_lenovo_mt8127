@@ -101,7 +101,7 @@ static struct early_suspend mt_cpufreq_early_suspend_handler =
 };
 #endif
 
-#define DVFS_F0_1   (1690000)   // KHz
+#define DVFS_F0_1   (1700000)   // KHz
 #define DVFS_F0_2   (1599000)   // KHz
 #define DVFS_F0_3   (1508000)   // KHz
 #define DVFS_F0_4   (1391000)   // KHz
@@ -112,7 +112,7 @@ static struct early_suspend mt_cpufreq_early_suspend_handler =
 #define DVFS_F2     (1040000)   // KHz
 #define DVFS_F2_1   (1001000)   // KHz
 #define DVFS_F3     ( 747500)   // KHz
-#define DVFS_F4     ( 598000)   // KHz
+#define DVFS_F4     ( 299000)   // KHz
 
 #if defined(HQA_LV_1_09V)
     #define DVFS_V0     (1200)  // mV
@@ -130,15 +130,13 @@ static struct early_suspend mt_cpufreq_early_suspend_handler =
     #define DVFS_V2     (1150)  // mV /*Not used */
     #define DVFS_V3     (1050)  // mV /*Not used */
 #else /* Normal case */
-    #define DVFS_V0     (1300)  // mV
+    #define DVFS_V0     (1340)  // mV
     #define DVFS_V1     (1200)  // mV
     #ifdef CPUFREQ_SDIO_TRANSFER
     #define DVFS_V2_0   (1185)  // mV
     #endif
-    #define DVFS_V2     (1150)  // mV
-    #ifdef MT_DVFS_LOW_VOLTAGE_SUPPORT
-    #define DVFS_V3     (1050)  // mV
-    #endif
+    #define DVFS_V2     (1100)  // mV
+    #define DVFS_V3     (900)  // mV
 #endif
 
 /*****************************************
@@ -265,15 +263,18 @@ static struct mt_cpu_freq_info mt8127_freqs_e1[] = {
 };
 #else /* Normal case */
 static struct mt_cpu_freq_info mt8127_freqs_e1[] = {
-    OP(DVFS_F0, DVFS_V0),
-    OP(DVFS_F1, DVFS_V1),
+    OP(DVFS_F0_1, DVFS_V0),
+    OP(DVFS_F0_2, DVFS_V0),
+    OP(DVFS_F0_3, DVFS_V1),
+    OP(DVFS_F0_4, DVFS_V1),
+    OP(DVFS_F0, DVFS_V1),
+    OP(DVFS_F1_0, DVFS_V1),
+    OP(DVFS_F1, DVFS_V2),
+    OP(DVFS_F1_1, DVFS_V2),
     OP(DVFS_F2, DVFS_V2),
-    OP(DVFS_F3, DVFS_V2),
-    #ifdef MT_DVFS_LOW_VOLTAGE_SUPPORT
+    OP(DVFS_F2_1, DVFS_V3),
+    OP(DVFS_F3, DVFS_V3),
     OP(DVFS_F4, DVFS_V3),
-    #else
-    OP(DVFS_F4, DVFS_V2),
-    #endif
 };
 #endif
 #ifdef CPUSTRESS_VPROC_1_25V_GPU_500MHZ_1BUCK
