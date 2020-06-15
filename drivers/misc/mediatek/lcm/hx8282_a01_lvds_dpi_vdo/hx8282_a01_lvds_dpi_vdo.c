@@ -222,7 +222,7 @@ static void lcm_get_params(LCM_PARAMS *params)
 	params->dpi.dpi_clk_div 	  = 4;			 //{4,2}, pll/4=51.025M
 	params->dpi.dpi_clk_duty	  = 2;
 #endif
-	params->dpi.PLL_CLOCK = 52;  //67MHz
+	params->dpi.PLL_CLOCK = 67;  //67MHz
 
     params->dpi.clk_pol           = LCM_POLARITY_FALLING;
     params->dpi.de_pol            = LCM_POLARITY_RISING;
