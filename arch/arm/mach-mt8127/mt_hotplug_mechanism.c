@@ -1,9 +1,16 @@
 /*
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- */
+* Copyright (C) 2011-2014 MediaTek Inc.
+* 
+* This program is free software: you can redistribute it and/or modify it under the terms of the 
+* GNU General Public License version 2 as published by the Free Software Foundation.
+* 
+* This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+* without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+* See the GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License along with this program.
+* If not, see <http://www.gnu.org/licenses/>.
+*/
 
 /*********************************
 * include
@@ -12,14 +19,18 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/cpu.h>
+#include <linux/cpufreq.h>
 #include <linux/earlysuspend.h>
 #include <linux/proc_fs.h>
+#include <linux/seq_file.h> //seq_printf, single_open
 #include <linux/wakelock.h>
 #include <linux/platform_device.h>
 #include <asm/uaccess.h>
 #include <mach/hotplug.h>
 #include <mach/sync_write.h>
-#include <linux/seq_file.h>
+#include <mach/mt_spm.h>
+#include <mach/mt_spm_mtcmos.h>
+
 
 
 /*********************************
@@ -73,6 +84,9 @@ static struct platform_driver mt_hotplug_mechanism_pdrv =
 
 static int g_test0 = 0;
 static int g_test1 = 0;
+static int g_memory_debug = SPM_FC3_PWR_CON;
+
+
 
 /*********************************
 * extern function
@@ -92,14 +106,18 @@ extern void hp_set_dynamic_cpu_hotplug_enable(int enable);
 #ifdef CONFIG_HAS_EARLYSUSPEND
 static void mt_hotplug_mechanism_early_suspend(struct early_suspend *h)
 {
-    HOTPLUG_INFO("mt_hotplug_mechanism_early_suspend");
+    struct cpufreq_policy *policy;
+    policy = cpufreq_cpu_get(0);
+        if (!policy)
+            return;
 
     if (!g_enable)
         goto early_suspend_end;
     
-    if (!g_enable_cpu_rush_boost)
+    if (!g_enable_cpu_rush_boost && strcmp(policy->governor->name, "hotplug") == 0)
     {
     #ifdef CONFIG_CPU_FREQ_GOV_HOTPLUG
+        HOTPLUG_INFO("mt_hotplug_mechanism_early_suspend\n");
         g_prev_cpu_rush_boost_enable = hp_get_cpu_rush_boost_enable();
         hp_set_cpu_rush_boost_enable(0);
     #endif //#ifdef CONFIG_CPU_FREQ_GOV_HOTPLUG
@@ -120,14 +138,18 @@ early_suspend_end:
 #ifdef CONFIG_HAS_EARLYSUSPEND
 static void mt_hotplug_mechanism_late_resume(struct early_suspend *h)
 {
-    HOTPLUG_INFO("mt_hotplug_mechanism_late_resume");
+    struct cpufreq_policy *policy;
+    policy = cpufreq_cpu_get(0);
+        if (!policy)
+            return;
 
     if (!g_enable)
         goto late_resume_end;
     
-    if (!g_enable_cpu_rush_boost)
+    if (!g_enable_cpu_rush_boost && strcmp(policy->governor->name, "hotplug") == 0)
     {
     #ifdef CONFIG_CPU_FREQ_GOV_HOTPLUG
+        HOTPLUG_INFO("mt_hotplug_mechanism_late_resume\n");
         hp_set_cpu_rush_boost_enable(g_prev_cpu_rush_boost_enable);
     #endif //#ifdef CONFIG_CPU_FREQ_GOV_HOTPLUG
     }
@@ -158,14 +180,18 @@ static int mt_hotplug_mechanism_probe(struct platform_device *pdev)
 ********************************/
 static int mt_hotplug_mechanism_suspend(struct platform_device *pdev, pm_message_t state)
 {
-    HOTPLUG_INFO("mt_hotplug_mechanism_suspend\n");
+    struct cpufreq_policy *policy;
+    policy = cpufreq_cpu_get(0);
+        if (!policy)
+            return;
     
     if (!g_enable)
         return 0;
     
-    if (!g_enable_dynamic_cpu_hotplug_at_suspend)
+    if (!g_enable_dynamic_cpu_hotplug_at_suspend && strcmp(policy->governor->name, "hotplug") == 0)
     {
     #ifdef CONFIG_CPU_FREQ_GOV_HOTPLUG
+        HOTPLUG_INFO("mt_hotplug_mechanism_suspend\n");
         g_prev_dynamic_cpu_hotplug_enable = hp_get_dynamic_cpu_hotplug_enable();
         hp_set_dynamic_cpu_hotplug_enable(0);
     #endif //#ifdef CONFIG_CPU_FREQ_GOV_HOTPLUG
@@ -181,14 +207,18 @@ static int mt_hotplug_mechanism_suspend(struct platform_device *pdev, pm_message
 ********************************/
 static int mt_hotplug_mechanism_resume(struct platform_device *pdev)
 {
-    HOTPLUG_INFO("mt_hotplug_mechanism_resume\n");
+    struct cpufreq_policy *policy;
+    policy = cpufreq_cpu_get(0);
+        if (!policy)
+           return;
     
     if (!g_enable)
         return 0;
     
-    if (!g_enable_dynamic_cpu_hotplug_at_suspend)
+    if (!g_enable_dynamic_cpu_hotplug_at_suspend && strcmp(policy->governor->name, "hotplug") == 0)
     {
     #ifdef CONFIG_CPU_FREQ_GOV_HOTPLUG
+        HOTPLUG_INFO("mt_hotplug_mechanism_resume\n");
         hp_set_dynamic_cpu_hotplug_enable(g_prev_dynamic_cpu_hotplug_enable);
     #endif //#ifdef CONFIG_CPU_FREQ_GOV_HOTPLUG
     }
@@ -197,12 +227,13 @@ static int mt_hotplug_mechanism_resume(struct platform_device *pdev)
 }
 
 
+
 /**************************************************************
 * mt hotplug mechanism control interface for procfs test0
 ***************************************************************/
-static int mt_hotplug_mechanism_test0_show(struct seq_file *s, void *v)
+static int mt_hotplug_mechanism_read_test0(struct seq_file *m, void *v)
 {
-    seq_printf(s, "%d\n", g_test0);
+    seq_printf(m, "%d\n", g_test0);
     
     HOTPLUG_INFO("mt_hotplug_mechanism_read_test0, hotplug_cpu_count: %d\n", atomic_read(&hotplug_cpu_count));
     on_each_cpu((smp_call_func_t)dump_stack, NULL, 1);
@@ -219,12 +250,7 @@ static int mt_hotplug_mechanism_test0_show(struct seq_file *s, void *v)
     return 0;
 }
 
-static int mt_hotplug_mechanism_test0_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, mt_hotplug_mechanism_test0_show, NULL);
-}
-
-static int mt_hotplug_mechanism_test0_write(struct file *file, const char *buffer, size_t count, loff_t *data)
+static int mt_hotplug_mechanism_write_test0(struct file *file, const char __user *buffer, size_t count, loff_t *pos)
 {
     int len = 0, test0 = 0;
     char desc[32];
@@ -249,14 +275,19 @@ static int mt_hotplug_mechanism_test0_write(struct file *file, const char *buffe
     return -EINVAL;
 }
 
-static const struct file_operations mt_hotplug_mechanism_test0_fops = {
-	.owner = THIS_MODULE,
-	.write = mt_hotplug_mechanism_test0_write,
-	.open = mt_hotplug_mechanism_test0_open,
-	.read = seq_read,
-	.llseek = seq_lseek,
-	.release = single_release,
+static int mt_hotplug_mechanism_open_test0(struct inode *inode, struct file *file)
+{
+    return single_open(file, mt_hotplug_mechanism_read_test0, NULL);
+}
+
+static const struct file_operations mt_hotplug_test0_fops = { 
+    .owner = THIS_MODULE,
+    .open  = mt_hotplug_mechanism_open_test0,
+    .read  = seq_read,
+    .write = mt_hotplug_mechanism_write_test0,
 };
+
+
 
 /**************************************************************
 * mt hotplug mechanism control interface for procfs test1
@@ -287,25 +318,17 @@ extern int g_tlp_avg_count;
 extern int g_tlp_avg_index;
 extern int g_tlp_avg_average; 
 
-static int mt_hotplug_mechanism_test1_show(struct seq_file *s, void *v)
-{   
-    seq_printf(s, "%d\n", g_test1);
-
-#if 0  /* These variables are not public in cpufreq_hotplug.c */  
-    HOTPLUG_INFO("[power/hotplug] thermal_debug_1 (%d)(%d)(%d)(%d)(%ld)(%ld)\n", g_trigger_hp_work, g_tlp_avg_average, g_tlp_avg_current,
-        g_cpus_sum_load_current, g_cpu_up_sum_load, g_cpu_down_sum_load);
-    HOTPLUG_INFO("[power/hotplug] thermal_debug_2 (%d)(%d)(%d)(%d)\n", g_cpu_up_count, g_cpu_up_load_index, g_cpu_down_count, g_cpu_down_load_index);
-#endif 
-	
+static int mt_hotplug_mechanism_read_test1(struct seq_file *m, void *v)
+{
+    seq_printf(m, "%d\n", g_test1);
+    
+    //HOTPLUG_INFO("[power/hotplug] thermal_debug_1 (%d)(%d)(%d)(%d)(%ld)(%ld)\n", g_trigger_hp_work, g_tlp_avg_average, g_tlp_avg_current,
+    //    g_cpus_sum_load_current, g_cpu_up_sum_load, g_cpu_down_sum_load);
+    //HOTPLUG_INFO("[power/hotplug] thermal_debug_2 (%d)(%d)(%d)(%d)\n", g_cpu_up_count, g_cpu_up_load_index, g_cpu_down_count, g_cpu_down_load_index);
     return 0;
 }
 
-static int mt_hotplug_mechanism_test1_open(struct inode *inode, struct file *file)
-{
-	return single_open(file, mt_hotplug_mechanism_test1_show, NULL);
-}
-
-static int mt_hotplug_mechanism_test1_write(struct file *file, const char *buffer, size_t count, loff_t *data)
+static int mt_hotplug_mechanism_write_test1(struct file *file, const char __user *buffer, size_t count, loff_t *pos)
 {
     int len = 0, test1 = 0;
     char desc[32];
@@ -330,14 +353,84 @@ static int mt_hotplug_mechanism_test1_write(struct file *file, const char *buffe
     return -EINVAL;
 }
 
-static const struct file_operations mt_hotplug_mechanism_test1_fops = {
-	.owner = THIS_MODULE,
-	.write = mt_hotplug_mechanism_test1_write,
-	.open = mt_hotplug_mechanism_test1_open,
-	.read = seq_read,
-	.llseek = seq_lseek,
-	.release = single_release,
+static int mt_hotplug_mechanism_open_test1(struct inode *inode, struct file *file)
+{
+    return single_open(file, mt_hotplug_mechanism_read_test1, NULL);
+}
+
+static const struct file_operations mt_hotplug_test1_fops = { 
+    .owner = THIS_MODULE,
+    .open  = mt_hotplug_mechanism_open_test1,
+    .read  = seq_read,
+    .write = mt_hotplug_mechanism_write_test1,
 };
+
+
+
+/**************************************************************
+* mt hotplug mechanism control interface for procfs memory_debug
+***************************************************************/
+static int mt_hotplug_mechanism_read_memory_debug(struct seq_file *m, void *v)
+{
+    seq_printf(m, "[0x%08x]=0x%08x\n", g_memory_debug, REG_READ(g_memory_debug));
+    HOTPLUG_INFO("[0x%08x]=0x%08x\n", g_memory_debug, REG_READ(g_memory_debug));
+    
+    return 0;
+}
+
+static int mt_hotplug_mechanism_write_memory_debug(struct file *file, const char __user *buffer, size_t count, loff_t *pos)
+{
+    int len = 0;
+    char desc[32];
+    char cmd1[16];
+    int cmd2, cmd3;
+    
+    len = (count < (sizeof(desc) - 1)) ? count : (sizeof(desc) - 1);
+    if (copy_from_user(desc, buffer, len))
+    {
+        return 0;
+    }
+    desc[len] = '\0';
+    
+    if (sscanf(desc, "%s %x %x", cmd1, &cmd2, &cmd3) == 3)
+    {
+        if (strcmp(cmd1, "w") == 0)
+        {
+            HOTPLUG_INFO("write [0x%08x] to 0x%08x\n", cmd2, cmd3);
+            REG_WRITE(cmd2, cmd3);
+        }
+        return count;
+    }
+    else if (sscanf(desc, "%s %x", cmd1, &cmd2) == 2)
+    {
+        if (strcmp(cmd1, "r") == 0)
+        {
+            HOTPLUG_INFO("read [0x%08x] as 0x%08x\n", cmd2, REG_READ(cmd2));
+            g_memory_debug = cmd2;
+        }
+        return count;
+    }
+    else
+    {
+        HOTPLUG_INFO("mt_hotplug_mechanism_write_memory_debug, bad argument\n");
+    }
+    
+    return -EINVAL;
+}
+
+static int mt_hotplug_mechanism_open_memory_debug(struct inode *inode, struct file *file)
+{
+    return single_open(file, mt_hotplug_mechanism_read_memory_debug, NULL);
+}
+
+static const struct file_operations mt_hotplug_memory_debug_fops = { 
+    .owner = THIS_MODULE,
+    .open  = mt_hotplug_mechanism_open_memory_debug,
+    .read  = seq_read,
+    .write = mt_hotplug_mechanism_write_memory_debug,
+};
+
+
 
 /*******************************
 * kernel module init function
@@ -348,27 +441,20 @@ static int __init mt_hotplug_mechanism_init(void)
     struct proc_dir_entry *mt_hotplug_dir = NULL;
     int r = 0;
     
-    HOTPLUG_INFO("mt_hotplug_mechanism_init");
+    HOTPLUG_INFO("mt_hotplug_mechanism_init\n");
     
     mt_hotplug_dir = proc_mkdir("mt_hotplug", NULL);
     if (!mt_hotplug_dir)
     {
-        HOTPLUG_INFO("mkdir /proc/mt_hotplug failed");
+        HOTPLUG_INFO("mkdir /proc/mt_hotplug failed\n");
     }
     else
     {
-        entry = proc_create("test0", S_IRUGO | S_IWUSR, mt_hotplug_dir, &mt_hotplug_mechanism_test0_fops);
-        if (!entry)
-        {
-            pr_err("[%s]: mkdir /proc/mt_hotplug/test0 failed\n", __func__);
-        }
-        entry = proc_create("test1", S_IRUGO | S_IWUSR, mt_hotplug_dir, &mt_hotplug_mechanism_test1_fops);
-        if (!entry)
-        {
-            pr_err("[%s]: mkdir /proc/mt_hotplug/test1 failed\n", __func__);
-        }
+        entry = proc_create("test0", S_IRUGO | S_IWUSR | S_IWGRP, mt_hotplug_dir, &mt_hotplug_test0_fops);
+        entry = proc_create("test1", S_IRUGO | S_IWUSR | S_IWGRP, mt_hotplug_dir, &mt_hotplug_test1_fops);
+        entry = proc_create("memory_debug", S_IRUGO | S_IWUSR | S_IWGRP, mt_hotplug_dir, &mt_hotplug_memory_debug_fops);
     }
-
+    
 #ifdef CONFIG_HAS_EARLYSUSPEND
     mt_hotplug_mechanism_early_suspend_handler.suspend = mt_hotplug_mechanism_early_suspend;
     mt_hotplug_mechanism_early_suspend_handler.resume = mt_hotplug_mechanism_late_resume;
@@ -390,7 +476,7 @@ module_init(mt_hotplug_mechanism_init);
 ********************************/
 static void __exit mt_hotplug_mechanism_exit(void)
 {
-    HOTPLUG_INFO("mt_hotplug_mechanism_exit");
+    HOTPLUG_INFO("mt_hotplug_mechanism_exit\n");
 }
 module_exit(mt_hotplug_mechanism_exit);
 
