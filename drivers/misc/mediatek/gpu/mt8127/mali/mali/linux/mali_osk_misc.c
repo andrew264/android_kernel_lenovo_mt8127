@@ -16,6 +16,7 @@
 #include <asm/uaccess.h>
 #include <asm/cacheflush.h>
 #include <linux/sched.h>
+#include <linux/seq_file.h>
 #include <linux/module.h>
 #include "mali_osk.h"
 #include "mt_reg_base.h"
@@ -41,6 +42,18 @@ u32 _mali_osk_snprintf( char *buf, u32 size, const char *fmt, ... )
 
 	va_end(args);
 	return res;
+}
+
+void _mali_osk_ctxprintf(struct seq_file  *print_ctx, const char *fmt, ...)
+{
+	va_list args;
+	char buf[512];
+
+	va_start(args, fmt);
+	vscnprintf(buf, sizeof(buf), fmt, args);
+	seq_printf(print_ctx, buf);
+	va_end(args);
+
 }
 
 #define CLK_CFG_0           (INFRA_BASE + 0x0040)
@@ -80,6 +93,11 @@ u32 _mali_osk_get_pid(void)
 {
 	/* Thread group ID is the process ID on Linux */
 	return (u32)current->tgid;
+}
+
+char *_mali_osk_get_comm(void)
+{
+	return (char *)current->comm;
 }
 
 u32 _mali_osk_get_tid(void)

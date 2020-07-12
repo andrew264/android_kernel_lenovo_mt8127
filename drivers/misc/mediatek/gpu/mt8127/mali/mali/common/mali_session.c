@@ -11,6 +11,7 @@
 #include "mali_osk.h"
 #include "mali_osk_list.h"
 #include "mali_session.h"
+#include "mali_ukk.h"
 
 _MALI_OSK_LIST_HEAD(mali_sessions);
 static u32 mali_session_count = 0;
@@ -79,3 +80,24 @@ u32 mali_session_max_window_num(void)
 	return max_window_num;
 }
 #endif
+
+void mali_session_memory_tracking(struct seq_file  *print_ctx)
+{
+	struct mali_session_data *session, *tmp;
+	u32 mali_mem_usage;
+	u32 total_mali_mem_size;
+
+	MALI_DEBUG_ASSERT_POINTER(print_ctx);
+	mali_session_lock();
+	MALI_SESSION_FOREACH(session, tmp, link) {
+		_mali_osk_ctxprintf(print_ctx, "  %-25s  %-10u  %-10u  %-15u  %-15u  %-10u  %-10u\n",
+				    session->comm, session->pid,
+				    session->mali_mem_array[MALI_MEM_OS] + session->mali_mem_array[MALI_MEM_BLOCK], session->max_mali_mem_allocated,
+				    session->mali_mem_array[MALI_MEM_EXTERNAL], session->mali_mem_array[MALI_MEM_UMP],
+				    session->mali_mem_array[MALI_MEM_DMA_BUF]);
+	}
+	mali_session_unlock();
+	mali_mem_usage  = _mali_ukk_report_memory_usage();
+	total_mali_mem_size = _mali_ukk_report_total_memory_size();
+	_mali_osk_ctxprintf(print_ctx, "Mali mem usage: %u\nMali mem limit: %u\n", mali_mem_usage, total_mali_mem_size);
+}
