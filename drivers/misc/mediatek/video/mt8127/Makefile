@@ -10,8 +10,7 @@ obj-$(CONFIG_MTK_FB) += disp_drv.o                  \
          mtkfb.o                                    \
          mtkfb_vsync.o                              \
          mtkfb_pattern.o                            \
-         debug.o                                    \
-         mtkfb_proc.o
+         debug.o
 obj-$(CONFIG_MTK_FB) += $(subst ",,$(CONFIG_MTK_PLATFORM))/
 
 ccflags-y += -I$(srctree)/drivers/misc/mediatek/video \
