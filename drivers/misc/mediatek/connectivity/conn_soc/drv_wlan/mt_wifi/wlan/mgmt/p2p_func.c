@@ -1142,7 +1142,7 @@ p2pFuncTxMgmtFrame (
                                 FALSE,
                                 prTxMsduInfo->prPacket,
                                 (UINT_32)prTxMsduInfo->u2FrameLength);
-
+                DBGLOG(P2P, EVENT, ("%s drop mgmt cookie 0x%llx\n", __func__, prMgmtTxReqInfo->u8Cookie));
                 // Leave it to TX Done handler.
                 //cnmMgtPktFree(prAdapter, prTxMsduInfo);
                 prMgmtTxReqInfo->prMgmtTxMsdu = NULL;
@@ -2038,7 +2038,7 @@ p2pFuncValidateRxActionFrame (
 {
     P_P2P_FSM_INFO_T prP2pFsmInfo = (P_P2P_FSM_INFO_T)NULL;
 
-    DEBUGFUNC("p2pFuncValidateProbeReq");
+    DEBUGFUNC("p2pFuncValidateActionFrame");
 
     do {
 
