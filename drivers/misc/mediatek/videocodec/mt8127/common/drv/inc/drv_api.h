@@ -1,3 +1,17 @@
+/*
+* Copyright (C) 2011-2014 MediaTek Inc.
+* 
+* This program is free software: you can redistribute it and/or modify it under the terms of the 
+* GNU General Public License version 2 as published by the Free Software Foundation.
+* 
+* This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
+* without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+* See the GNU General Public License for more details.
+*
+* You should have received a copy of the GNU General Public License along with this program.
+* If not, see <http://www.gnu.org/licenses/>.
+*/
+
 #ifndef __MT6589_DRVBASE_H__
 #define __MT6589_DRVBASE_H__
 
@@ -39,6 +53,7 @@ extern VAL_UINT32_T gu4LockDecHWCount; //spinlock : LockDecHWCountLock
 extern VAL_UINT32_T gu4LockEncHWCount; //spinlock : LockEncHWCountLock
 extern VAL_UINT32_T gu4DecISRCount;    //spinlock : DecISRCountLock
 extern VAL_UINT32_T gu4EncISRCount;    //spinlock : EncISRCountLock
+
 
 VAL_INT32_T search_HWLockSlot_ByTID(VAL_UINT32_T pa, VAL_UINT32_T curr_tid);
 VAL_INT32_T search_HWLockSlot_ByHandle(VAL_UINT32_T pa, VAL_HANDLE_T handle);
