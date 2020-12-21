@@ -2186,7 +2186,7 @@ extern void ext4_htree_free_dir_info(struct dir_private_info *p);
 extern int ext4_find_dest_de(struct inode *dir, struct inode *inode,
 			     struct buffer_head *bh,
 			     void *buf, int buf_size,
-			     const char *name, int namelen,
+			     struct ext4_filename *fname,
 			     struct ext4_dir_entry_2 **dest_de);
 int ext4_insert_dentry(struct inode *dir,
 		       struct inode *inode,
